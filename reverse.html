@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BeeSurf - Race to the Grave</title>
+    <style>
+        body { margin: 0; background: #0a0a0a; color: #fff; font-family: 'Courier New', Courier, monospace; overflow: hidden; }
+        canvas { display: block; }
+        #ui { position: absolute; top: 20px; width: 100%; display: flex; justify-content: space-around; pointer-events: none; }
+        .p-box { text-align: center; width: 300px; }
+        .bar-container { background: #333; height: 20px; width: 100%; border: 2px solid #fff; margin-top: 5px; }
+        .bar { height: 100%; transition: width 0.2s; }
+        #hp1 { background: #ffcc00; width: 100%; }
+        #hp2 { background: #00ccff; width: 100%; }
+        #winScreen { 
+            display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(255,255,255,0.9); color: #000; padding: 40px; text-align: center;
+            border: 5px solid #ff4444; font-size: 32px; z-index: 100;
+        }
+        .goal { position: absolute; bottom: 20px; width: 100%; text-align: center; color: #ff4444; font-size: 20px; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div class="p-box">
+            <div style="color:#ffcc00">PLAYER 1 (WAD + S)</div>
+            <div class="bar-container"><div id="hp1" class="bar"></div></div>
+        </div>
+        <div class="p-box">
+            <div style="color:#00ccff">PLAYER 2 (ARROWS)</div>
+            <div class="bar-container"><div id="hp2" class="bar"></div></div>
+        </div>
+    </div>
+    <div class="goal">OBJECTIVE: LOSE ALL HEALTH TO WIN!</div>
+    <div id="winScreen"><h1 id="winnerMsg"></h1><button onclick="location.reload()">REMATCH</button></div>
+    <canvas id="game"></canvas>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+let gameOver = false;
+
+// --- Config ---
+const gravity = 0.28;
+const friction = 0.992; 
+const jumpForce = -9;
+const dashPower = 18;
+
+function createPlayer(x, y, color, id) {
+    return { 
+        id, x, y, vx: 10, vy: 0, radius: 15, color, 
+        hp: 100, canJump: true, dashCooldown: 0, isDashing: 0 
+    };
+}
+
+let p1 = createPlayer(100, 300, '#ffcc00', 'PLAYER 1');
+let p2 = createPlayer(200, 300, '#00ccff', 'PLAYER 2');
+
+let platforms = [];
+let nextX = 0;
+let lastY = 400;
+
+function createSegment(startX) {
+    const width = 200 + Math.random() * 300;
+    const gap = 200 + Math.random() * 300; 
+    const endY = Math.max(150, Math.min(window.innerHeight - 150, lastY + (Math.random() * 400 - 200)));
+    const s = { x1: startX + gap, y1: lastY, x2: startX + gap + width, y2: endY };
+    lastY = endY; nextX = s.x2; return s;
+}
+
+for(let i=0; i<10; i++) platforms.push(createSegment(nextX));
+
+function updatePlayer(p, opponent, controls) {
+    if(gameOver) return;
+
+    // Movement
+    if (keys[controls.left]) p.vx -= 0.6;
+    if (keys[controls.right]) p.vx += 0.6;
+    if (keys[controls.up] && p.canJump) { p.vy = jumpForce; p.canJump = false; }
+
+    // Dash (S or Down)
+    if (keys[controls.dash] && p.dashCooldown <= 0) {
+        p.vx += (p.vx > 0 ? 1 : -1) * dashPower;
+        p.isDashing = 15;
+        p.dashCooldown = 50;
+    }
+
+    p.vy += gravity;
+    p.vx *= friction;
+    p.x += p.vx;
+    p.y += p.vy;
+    if (p.dashCooldown > 0) p.dashCooldown--;
+    if (p.isDashing > 0) p.isDashing--;
+
+    // Platform Collision
+    platforms.forEach(plat => {
+        if (p.x > plat.x1 && p.x < plat.x2) {
+            let t = (p.x - plat.x1) / (plat.x2 - plat.x1);
+            let groundY = plat.y1 + t * (plat.y2 - plat.y1);
+            if (p.y + p.radius > groundY && p.y - p.radius < groundY + 30) {
+                p.y = groundY - p.radius;
+                let angle = Math.atan2(plat.y2 - plat.y1, plat.x2 - plat.x1);
+                let speed = Math.sqrt(p.vx**2 + p.vy**2);
+                p.vx = Math.cos(angle) * speed;
+                p.vy = Math.sin(angle) * speed;
+                p.canJump = true;
+            }
+        }
+    });
+
+    // Combat Collision
+    let dx = p.x - opponent.x;
+    let dy = p.y - opponent.y;
+    let dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist < p.radius + opponent.radius && p.isDashing > 0) {
+        opponent.hp -= 5; // Dashing into them damages them (Helping them win!)
+        opponent.vx *= 1.5;
+        p.isDashing = 0;
+    }
+
+    // Death (Falling)
+    if (p.y > window.innerHeight + 500) {
+        p.hp -= 20; 
+        p.x = platforms[0].x1; p.y = platforms[0].y1 - 100; p.vx = 8; p.vy = 0;
+    }
+
+    // Win Check (Whoever dies first wins)
+    if (p.hp <= 0 && !gameOver) {
+        p.hp = 0;
+        endGame(p.id);
+    }
+}
+
+function endGame(winner) {
+    gameOver = true;
+    document.getElementById('winScreen').style.display = 'block';
+    document.getElementById('winnerMsg').innerText = winner + " WINS BY DYING!";
+}
+
+function update() {
+    updatePlayer(p1, p2, { up: 'w', left: 'a', right: 'd', dash: 's' });
+    updatePlayer(p2, p1, { up: 'arrowup', left: 'arrowleft', right: 'arrowright', dash: 'arrowdown' });
+
+    let leaderX = Math.max(p1.x, p2.x);
+    if (platforms[0].x2 < leaderX - 1500) platforms.shift();
+    if (platforms.length < 12) platforms.push(createSegment(nextX));
+
+    document.getElementById('hp1').style.width = p1.hp + "%";
+    document.getElementById('hp2').style.width = p2.hp + "%";
+
+    draw();
+    requestAnimationFrame(update);
+}
+
+function draw() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    let avgX = (p1.x + p2.x) / 2;
+    ctx.translate(-avgX + canvas.width/3, 0);
+
+    ctx.strokeStyle = '#444';
+    ctx.lineWidth = 8;
+    platforms.forEach(p => {
+        ctx.beginPath();
+        ctx.moveTo(p.x1, p.y1);
+        ctx.lineTo(p.x2, p.y2);
+        ctx.stroke();
+    });
+
+    [p1, p2].forEach(p => {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(Math.atan2(p.vy, p.vx));
+        if (p.isDashing > 0) { ctx.shadowBlur = 20; ctx.shadowColor = 'white'; }
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 18, 12, 0, 0, Math.PI*2);
+        ctx.fill();
+        ctx.fillStyle = '#000';
+        ctx.fillRect(-5, -10, 4, 20);
+        ctx.fillRect(3, -10, 4, 20);
+        ctx.restore();
+    });
+}
+
+const keys = {};
+window.onkeydown = (e) => keys[e.key.toLowerCase()] = true;
+window.onkeyup = (e) => keys[e.key.toLowerCase()] = false;
+window.onresize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
+window.onresize();
+update();
+</script>
+</body>
+</html>
