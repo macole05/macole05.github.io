@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BeeSurf - Infinite Gaps</title>
+    <style>
+        body { margin: 0; background: #0a0a0a; color: #fff; font-family: sans-serif; overflow: hidden; }
+        canvas { display: block; }
+        #ui { position: absolute; top: 20px; left: 20px; pointer-events: none; text-shadow: 2px 2px 4px #000; }
+        .speed { font-size: 32px; font-weight: bold; color: #ffcc00; }
+        .hint { font-size: 14px; opacity: 0.7; margin-top: 5px; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div class="speed"><span id="speedVal">0</span> u/s</div>
+        <div class="hint">A / D to Strafe • <b>W to JUMP</b></div>
+    </div>
+    <canvas id="game"></canvas>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const speedVal = document.getElementById('speedVal');
+
+// --- Physics ---
+const gravity = 0.28;
+const friction = 0.992; 
+const airAccel = 0.65;
+const jumpForce = -9; // Power of the W jump
+
+let player = {
+    x: 100, y: 300,
+    vx: 10, vy: 0,
+    radius: 12,
+    canJump: true
+};
+
+let platforms = [];
+let nextX = 0;
+let lastY = 400;
+
+function createSegment(startX) {
+    const width = 250 + Math.random() * 350;
+    // Increased gap distance: 150 to 350 pixels wide
+    const gap = 150 + Math.random() * 200; 
+    
+    // Vertical variance
+    const endY = Math.max(150, Math.min(window.innerHeight - 150, lastY + (Math.random() * 300 - 150)));
+    
+    const segment = {
+        x1: startX + gap,
+        y1: lastY,
+        x2: startX + gap + width,
+        y2: endY,
+        color: `hsl(${40 + (Math.random() * 20)}, 90%, 50%)`
+    };
+    
+    lastY = endY;
+    nextX = segment.x2;
+    return segment;
+}
+
+// Populate start
+for(let i=0; i<8; i++) platforms.push(createSegment(nextX));
+
+function update() {
+    // 1. Controls
+    if (keys['a']) player.vx -= airAccel;
+    if (keys['d']) player.vx += airAccel;
+    
+    // Jump Logic (W)
+    if (keys['w'] && player.canJump) {
+        player.vy = jumpForce;
+        player.canJump = false; // Prevents infinite flying
+    }
+
+    // 2. Apply Physics
+    player.vy += gravity;
+    player.vx *= friction;
+    player.x += player.vx;
+    player.y += player.vy;
+
+    let onGround = false;
+
+    // 3. Collision
+    platforms.forEach(p => {
+        if (player.x > p.x1 && player.x < p.x2) {
+            let t = (player.x - p.x1) / (p.x2 - p.x1);
+            let groundY = p.y1 + t * (p.y2 - p.y1);
+
+            if (player.y + player.radius > groundY && player.y - player.radius < groundY + 30) {
+                player.y = groundY - player.radius;
+                
+                let angle = Math.atan2(p.y2 - p.y1, p.x2 - p.x1);
+                let speed = Math.sqrt(player.vx**2 + player.vy**2);
+                
+                player.vx = Math.cos(angle) * speed;
+                player.vy = Math.sin(angle) * speed;
+                
+                onGround = true;
+                player.canJump = true; // Reset jump when touching a ramp
+            }
+        }
+    });
+
+    // 4. Infinite Generation
+    if (platforms[0].x2 < player.x - 1000) platforms.shift();
+    if (platforms.length < 10) platforms.push(createSegment(nextX));
+
+    // 5. Reset
+    if (player.y > window.innerHeight + 500) {
+        player.x = platforms[0].x1;
+        player.y = platforms[0].y1 - 100;
+        player.vx = 10;
+        player.vy = 0;
+    }
+
+    draw();
+    speedVal.innerText = Math.floor(Math.abs(player.vx) * 10);
+    requestAnimationFrame(update);
+}
+
+function draw() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.translate(-player.x + 250, 0);
+
+    // Draw Ramps
+    platforms.forEach(p => {
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = p.color;
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 8;
+        ctx.beginPath();
+        ctx.moveTo(p.x1, p.y1);
+        ctx.lineTo(p.x2, p.y2);
+        ctx.stroke();
+    });
+    ctx.shadowBlur = 0;
+
+    // Draw Bee
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.rotate(Math.atan2(player.vy, player.vx));
+    
+    ctx.fillStyle = '#ffcc00';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 14, 10, 0, 0, Math.PI*2);
+    ctx.fill();
+    // Stripes
+    ctx.fillStyle = '#000';
+    ctx.fillRect(-4, -8, 3, 16);
+    ctx.fillRect(2, -8, 3, 16);
+    
+    ctx.restore();
+}
+
+const keys = {};
+window.onkeydown = (e) => keys[e.key.toLowerCase()] = true;
+window.onkeyup = (e) => keys[e.key.toLowerCase()] = false;
+window.onresize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
+window.onresize();
+
+update();
+</script>
+</body>
+</html>
